@@ -162,3 +162,15 @@ tr:nth-child(even) {
     .container { width: 100vw; }
     table { font-size: 12px; }
 }
+
+/* Match the Apply button height for the custom % input */
+#recoveryCustom {
+    height: 40px;            /* ~ matches 10px+10px padding + border + 15px font */
+    padding: 0 12px;
+    font-size: 15px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background-color: var(--surface);
+    color: var(--text);
+    box-sizing: border-box;
+}
