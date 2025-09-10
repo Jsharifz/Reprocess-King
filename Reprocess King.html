@@ -35,7 +35,8 @@
                 <button id="btnRecovery906" onclick="setRecovery906()" aria-pressed="true" title="Set recovery to 90.6%">90.6% Recovery</button>
                 <button id="btnRecovery50" onclick="setRecovery50()" aria-pressed="false" title="Set recovery to 50%">50% Recovery</button>
                 <input id="recoveryCustom" type="number" min="0" max="100" step="0.1" value="90.6"
-                       title="Custom recovery percentage" placeholder="Custom %" />
+                       title="Custom recovery percentage" placeholder="Custom %"
+                       onkeydown="if (event.key === 'Enter') { event.preventDefault(); applyCustomRecovery(); }" />
                 <button id="btnRecoveryApply" onclick="applyCustomRecovery()" title="Apply custom recovery percentage">Apply</button>
             </div>
 
@@ -54,5 +55,11 @@
     </div>
 
     <script src="Reprocess King.js"></script>
+    <script>
+      const recoveryCustomEl = $('recoveryCustom');
+      recoveryCustomEl?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); applyCustomRecovery(); }
+      });
+    </script>
 </body>
 </html>
