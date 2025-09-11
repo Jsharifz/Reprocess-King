@@ -1,15 +1,18 @@
 ﻿<!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EVE Online Reprocess King</title>
     <link rel="stylesheet" href="Reprocess King.css">
 </head>
+
 <body>
     <div class="container">
         <h1>EVE Online Reprocess King</h1>
-        <p class="subtitle">Paste item list from EVE Online (e.g., from contracts, cargo scans) to find profitable reprocessing opportunities in Jita.</p>
+        <p class="subtitle">Paste item list from EVE Online (e.g., from contracts, cargo scans) to find profitable
+            reprocessing opportunities in Jita.</p>
 
         <div class="input-area">
             <textarea id="input" rows="10" placeholder="Paste items here, one per line..."></textarea>
@@ -30,8 +33,10 @@
                 <button id="btnRecoveryApply" onclick="applyCustomRecovery()">Apply</button>
             </div>
             <div class="toggles">
-                <button id="toggleAmmoBtn" onclick="toggleIgnoreAmmo()" aria-pressed="false">Ignore Ammunition: Off</button>
-                <button id="toggleShowReprocessBtn" onclick="toggleShowOnlyReprocess()" aria-pressed="false">Show Only Reprocess: Off</button>
+                <button id="toggleAmmoBtn" onclick="toggleIgnoreAmmo()" aria-pressed="false">Ignore Ammunition:
+                    Off</button>
+                <button id="toggleShowReprocessBtn" onclick="toggleShowOnlyReprocess()" aria-pressed="false">Show
+                    Only Reprocess: Off</button>
             </div>
             <div class="ratio-filters">
                 <span>Min Ratio:</span>
@@ -55,4 +60,5 @@
 
     <script src="Reprocess King.js"></script>
 </body>
+
 </html>

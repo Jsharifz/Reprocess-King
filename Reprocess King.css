@@ -13,6 +13,13 @@
     --danger: #E57373;
 }
 
+@font-face {
+    font-family: 'EVE Alpha';
+    src: url('fonts/EVE-Alpha.woff2') format('woff2'); /* Adjust filename if needed */
+    font-weight: normal;
+    font-style: normal;
+}
+
 @keyframes move-bg {
     0% { background-position: 0% 50%; }
     50% { background-position: 100% 50%; }
@@ -51,7 +58,10 @@ h1 {
     text-align: center;
     color: var(--text);
     margin-top: 0;
-    font-weight: 600;
+    font-family: 'EVE Alpha', sans-serif;
+    font-weight: normal;
+    text-transform: uppercase;
+    letter-spacing: 2px;
 }
 
 .subtitle {
