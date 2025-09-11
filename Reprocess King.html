@@ -1,65 +1,48 @@
 ﻿<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>EVE Online Jita Item Reprocessing Comparator</title>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@300;400&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="Reprocess King.css" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EVE Online Reprocess King</title>
+    <link rel="stylesheet" href="Reprocess King.css">
 </head>
 <body>
     <div class="container">
-        <h1>EVE Online Item Reprocessing Comparator</h1>
+        <h1>EVE Online Reprocess King</h1>
+        <p class="subtitle">Paste item list from EVE Online (e.g., from contracts, cargo scans) to find profitable reprocessing opportunities in Jita.</p>
 
-        <div class="info">
-            <p>
-                Compare Jita prices vs reprocess value. Exact item names only (case-insensitive).
-                Non-reprocessable items are omitted automatically. Use the toggles to:
-            </p>
-            <ul>
-                <li>Set reprocessing recovery % (90.6%, 50%, or custom)</li>
-                <li>Ignore ammunition (Charge category)</li>
-                <li>Show only items better to reprocess</li>
-                <li>Sort by “Difference” (Reprocess - Price)</li>
-            </ul>
+        <div class="input-area">
+            <textarea id="input" rows="10" placeholder="Paste items here, one per line..."></textarea>
         </div>
-
-        <textarea id="input" placeholder="Paste item list here, e.g.,&#10;Veldspar&#10;Scordite 10000&#10;Tritanium (quantities ignored)"></textarea>
 
         <div class="controls">
-            <button id="btnBuy" onclick="calculate('buy')">Calculate Using Jita Buy Prices</button>
-            <button id="btnSell" onclick="calculate('sell')">Calculate Using Jita Sell Prices</button>
-
-            <!-- New recovery controls -->
-            <div class="recovery-controls" role="group" aria-label="Recovery">
-                <button id="btnRecovery906" onclick="setRecovery906()" aria-pressed="true" title="Set recovery to 90.6%">90.6% Recovery</button>
-                <button id="btnRecovery50" onclick="setRecovery50()" aria-pressed="false" title="Set recovery to 50%">50% Recovery</button>
-                <input id="recoveryCustom" type="number" min="0" max="100" step="0.1" value="90.6"
-                       title="Custom recovery percentage" placeholder="Custom %"
-                       onkeydown="if (event.key === 'Enter') { event.preventDefault(); applyCustomRecovery(); }" />
-                <button id="btnRecoveryApply" onclick="applyCustomRecovery()" title="Apply custom recovery percentage">Apply</button>
-            </div>
-
-            <button id="toggleAmmoBtn" onclick="toggleIgnoreAmmo()" aria-pressed="false" title="Ignore ammunition (Charge category)">Ignore Ammunition: Off</button>
-            <button id="toggleShowReprocessBtn" onclick="toggleShowOnlyReprocess()" aria-pressed="false" title="Show only items where reprocessing is better">Show Only Reprocess: Off</button>
-            <button id="toggleSortBtn" onclick="toggleSortDiff()" aria-pressed="false" title="Toggle Difference sort order">Sort Difference: Desc ▼</button>
-            <button id="resetBtn" onclick="resetAll()" aria-pressed="false" title="Clear input, results and restore toggles to defaults">Reset</button>
+            <button onclick="calculate('buy')">Calculate (Buy Prices)</button>
+            <button onclick="calculate('sell')">Calculate (Sell Prices)</button>
+            <button onclick="resetAll()">Reset</button>
         </div>
 
-        <div id="loading" aria-busy="true" aria-live="polite">
-            <div class="spinner" role="progressbar" aria-label="Loading"></div>
-            <div class="loading-text">Fetching Jita data... Please wait.</div>
+        <div class="options">
+            <div class="recovery-controls">
+                <span>Recovery Rate:</span>
+                <button id="btnRecovery906" onclick="setRecovery906()" aria-pressed="true">90.6%</button>
+                <button id="btnRecovery50" onclick="setRecovery50()" aria-pressed="false">50%</button>
+                <input type="number" id="recoveryCustom" step="0.1" min="0" max="100" placeholder="Custom %">
+                <button id="btnRecoveryApply" onclick="applyCustomRecovery()">Apply</button>
+            </div>
+            <div class="toggles">
+                <button id="toggleAmmoBtn" onclick="toggleIgnoreAmmo()" aria-pressed="false">Ignore Ammunition: Off</button>
+                <button id="toggleShowReprocessBtn" onclick="toggleShowOnlyReprocess()" aria-pressed="false">Show Only Reprocess: Off</button>
+            </div>
+        </div>
+
+        <div id="loading" class="loading-overlay" style="display: none;">
+            <div class="spinner"></div>
+            <p>Loading...</p>
         </div>
 
         <div id="output"></div>
     </div>
 
     <script src="Reprocess King.js"></script>
-    <script>
-      const recoveryCustomEl = $('recoveryCustom');
-      recoveryCustomEl?.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); applyCustomRecovery(); }
-      });
-    </script>
 </body>
 </html>

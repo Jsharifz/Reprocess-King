@@ -18,7 +18,6 @@ const outputEl = $('output');
 const loadingEl = $('loading');
 const toggleAmmoBtn = $('toggleAmmoBtn');
 const toggleShowReprocessBtn = $('toggleShowReprocessBtn');
-const toggleSortBtn = $('toggleSortBtn');
 
 // New recovery control refs
 const btnRecovery50 = $('btnRecovery50');
@@ -38,8 +37,10 @@ let groupIdToCategoryId = new Map();
 let recoveryFactor = BASE_RECOVERY; // currently selected recovery (0..1)
 let ignoreAmmo = false;         // skip items in Charge category
 let showOnlyReprocess = false;  // show only items with diff > 0
-let sortDiffAsc = false;        // difference sort order (false = Desc by default)
+let sortColumn = 'diff';        // Column to sort by
+let sortDirection = 'desc';     // 'asc' or 'desc'
 let lastSide = 'buy';
+let currentRows = [];           // Holds the currently displayed data
 
 // ---- Utilities ----
 function setLoading(isLoading) {
@@ -226,6 +227,62 @@ function applyCustomRecovery() {
     applyRecoveryAndRecalc('custom');
 }
 
+// ---- Rendering ----
+function renderTable() {
+    const isBuy = lastSide === 'buy';
+    const priceHeader = isBuy ? 'Jita Buy Price (ISK)' : 'Jita Sell Price (ISK)';
+    const diffHeader = isBuy ? 'Difference (Reprocess - Buy)' : 'Difference (Reprocess - Sell)';
+    const rpHeader = `Reprocess Value (ISK, ${(recoveryFactor * 100).toFixed(1)}% Recovery)`;
+
+    // Optional filter: show only positive diff (reprocess)
+    const filtered = showOnlyReprocess ? currentRows.filter(r => r.diff > 0) : [...currentRows];
+
+    // Sort by the selected column and direction
+    filtered.sort((a, b) => {
+        const valA = a[sortColumn];
+        const valB = b[sortColumn];
+        const isAsc = sortDirection === 'asc';
+
+        if (typeof valA === 'string') {
+            return isAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        }
+        return isAsc ? valA - valB : valB - valA;
+    });
+
+    if (filtered.length === 0) {
+        outputEl.innerHTML = '<p class="error">No items match the current filters.</p>';
+        return;
+    }
+
+    // Helper to generate sortable table headers
+    const th = (key, title) => {
+        const arrow = sortColumn === key ? (sortDirection === 'asc' ? '▲' : '▼') : '';
+        return `<th style="cursor:pointer" onclick="setSort('${key}')">${title} ${arrow}</th>`;
+    };
+
+    // Build table HTML
+    let html = `<table><tr>
+        ${th('name', 'Item')}
+        ${th('itemPrice', priceHeader)}
+        ${th('reprocessValue', rpHeader)}
+        ${th('diff', diffHeader)}
+        ${th('recommend', 'Recommendation')}
+    </tr>`;
+
+    for (const r of filtered) {
+        html += `<tr>
+            <td style="text-align:left">${r.name}</td>
+            <td>${formatNumber(r.itemPrice)}</td>
+            <td>${formatNumber(r.reprocessValue)}</td>
+            <td>${formatNumber(r.diff)}</td>
+            <td class="${r.recClass}">${r.recommend}</td>
+        </tr>`;
+    }
+    html += '</table>';
+
+    outputEl.innerHTML = html;
+}
+
 // ---- Core calculation ----
 async function calculate(side = 'buy') {
     if (busy) return;
@@ -274,6 +331,7 @@ async function calculate(side = 'buy') {
 
         if (items.length === 0) {
             outputEl.innerHTML = '<p class="error">No valid items found.</p>';
+            currentRows = [];
             return;
         }
 
@@ -283,14 +341,10 @@ async function calculate(side = 'buy') {
         const isBuy = side === 'buy';
         const sideKey = isBuy ? 'buy' : 'sell';
         const statKey = isBuy ? 'max' : 'min';
-
-        const priceHeader = isBuy ? 'Jita Buy Price (ISK)' : 'Jita Sell Price (ISK)';
-        const diffHeader = isBuy ? 'Difference (Reprocess - Buy)' : 'Difference (Reprocess - Sell)';
         const sellText = isBuy ? 'Sell to Buy Orders' : 'List as Sell Order';
-        const rpHeader = `Reprocess Value (ISK, ${(recoveryFactor * 100).toFixed(1)}% Recovery)`;
 
         // Compute rows
-        const rows = items.map(it => {
+        currentRows = items.map(it => {
             const itemPrice = +marketJson[it.typeID]?.[sideKey]?.[statKey] || 0;
             let reprocessValue = 0;
             for (const mat of it.mats) {
@@ -303,41 +357,12 @@ async function calculate(side = 'buy') {
             return { name: it.name, itemPrice, reprocessValue, diff, recommend, recClass };
         });
 
-        // Optional filter: show only positive diff (reprocess)
-        const filtered = showOnlyReprocess ? rows.filter(r => r.diff > 0) : rows;
+        renderTable();
 
-        // Sort by difference
-        filtered.sort((a, b) => sortDiffAsc ? (a.diff - b.diff) : (b.diff - a.diff));
-
-        if (filtered.length === 0) {
-            outputEl.innerHTML = '<p class="error">No items match the current filters.</p>';
-            return;
-        }
-
-        // Build table HTML
-        let html = `<table><tr>
-            <th>Item</th>
-            <th>${priceHeader}</th>
-            <th>${rpHeader}</th>
-            <th style="cursor:pointer" onclick="toggleSortDiff()">${diffHeader} ${sortDiffAsc ? '▲' : '▼'}</th>
-            <th>Recommendation</th>
-        </tr>`;
-
-        for (const r of filtered) {
-            html += `<tr>
-                <td style="text-align:left">${r.name}</td>
-                <td>${formatNumber(r.itemPrice)}</td>
-                <td>${formatNumber(r.reprocessValue)}</td>
-                <td>${formatNumber(r.diff)}</td>
-                <td class="${r.recClass}">${r.recommend}</td>
-            </tr>`;
-        }
-        html += '</table>';
-
-        outputEl.innerHTML = html;
     } catch (err) {
         console.error(err);
         outputEl.innerHTML = '<p class="error">Error fetching up-to-date market data (≤ 1 day). Please try again.</p>';
+        currentRows = [];
     } finally {
         setLoading(false);
         busy = false;
@@ -351,11 +376,13 @@ function resetAll() {
     inputEl.value = '';
     outputEl.innerHTML = '';
     loadingEl.style.display = 'none';
+    currentRows = [];
 
     recoveryFactor = BASE_RECOVERY; // reset to 90.6%
     ignoreAmmo = false;
     showOnlyReprocess = false;
-    sortDiffAsc = false;
+    sortColumn = 'diff';
+    sortDirection = 'desc';
     lastSide = 'buy';
 
     // Recovery UI reset
@@ -367,16 +394,13 @@ function resetAll() {
 
     toggleShowReprocessBtn.textContent = 'Show Only Reprocess: Off';
     toggleShowReprocessBtn.setAttribute('aria-pressed', 'false');
-
-    toggleSortBtn.textContent = 'Sort Difference: Desc ▼';
-    toggleSortBtn.setAttribute('aria-pressed', 'false');
 }
 
 // Expose functions for inline handlers
 window.calculate = calculate;
 window.toggleIgnoreAmmo = toggleIgnoreAmmo;
 window.toggleShowOnlyReprocess = toggleShowOnlyReprocess;
-window.toggleSortDiff = toggleSortDiff;
+window.setSort = setSort;
 window.resetAll = resetAll;
 
 // Recovery handlers
@@ -398,13 +422,18 @@ function toggleShowOnlyReprocess() {
     showOnlyReprocess = !showOnlyReprocess;
     toggleShowReprocessBtn.textContent = `Show Only Reprocess: ${showOnlyReprocess ? 'On' : 'Off'}`;
     toggleShowReprocessBtn.setAttribute('aria-pressed', showOnlyReprocess ? 'true' : 'false');
-    if (inputEl.value.trim()) calculate(lastSide);
+    if (currentRows.length > 0) renderTable();
 }
 
-function toggleSortDiff() {
+function setSort(column) {
     if (busy) return;
-    sortDiffAsc = !sortDiffAsc;
-    toggleSortBtn.textContent = `Sort Difference: ${sortDiffAsc ? 'Asc ▲' : 'Desc ▼'}`;
-    toggleSortBtn.setAttribute('aria-pressed', sortDiffAsc ? 'true' : 'false');
-    if (inputEl.value.trim()) calculate(lastSide);
+    if (sortColumn === column) {
+        sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+        sortColumn = column;
+        // Default to ascending for string columns, descending for numeric columns
+        const isStringColumn = column === 'name' || column === 'recommend';
+        sortDirection = isStringColumn ? 'asc' : 'desc';
+    }
+    if (currentRows.length > 0) renderTable();
 }
