@@ -25,6 +25,9 @@ const btnRecovery906 = $('btnRecovery906');
 const recoveryCustomEl = $('recoveryCustom');
 const btnRecoveryApply = $('btnRecoveryApply');
 
+// Ratio filter refs
+const ratioCustomEl = $('ratioCustom');
+
 // Data maps
 let typeNameToId = new Map();
 let typeMaterials = new Map();
@@ -37,6 +40,7 @@ let groupIdToCategoryId = new Map();
 let recoveryFactor = BASE_RECOVERY; // currently selected recovery (0..1)
 let ignoreAmmo = false;         // skip items in Charge category
 let showOnlyReprocess = false;  // show only items with diff > 0
+let minRatioFilter = 0;         // minimum value ratio to show
 let sortColumn = 'diff';        // Column to sort by
 let sortDirection = 'desc';     // 'asc' or 'desc'
 let lastSide = 'buy';
@@ -234,8 +238,17 @@ function renderTable() {
     const diffHeader = isBuy ? 'Difference (Reprocess - Buy)' : 'Difference (Reprocess - Sell)';
     const rpHeader = `Reprocess Value (ISK, ${(recoveryFactor * 100).toFixed(1)}% Recovery)`;
 
-    // Optional filter: show only positive diff (reprocess)
-    const filtered = showOnlyReprocess ? currentRows.filter(r => r.diff > 0) : [...currentRows];
+    // Apply filters
+    let filtered = [...currentRows];
+    if (ignoreAmmo) {
+        filtered = filtered.filter(r => !isAmmo(r.typeID));
+    }
+    if (showOnlyReprocess) {
+        filtered = filtered.filter(r => r.diff > 0);
+    }
+    if (minRatioFilter > 0) {
+        filtered = filtered.filter(r => r.ratio >= minRatioFilter);
+    }
 
     // Sort by the selected column and direction
     filtered.sort((a, b) => {
@@ -266,6 +279,7 @@ function renderTable() {
         ${th('itemPrice', priceHeader)}
         ${th('reprocessValue', rpHeader)}
         ${th('diff', diffHeader)}
+        ${th('ratio', 'Ratio')}
         ${th('recommend', 'Recommendation')}
     </tr>`;
 
@@ -275,6 +289,7 @@ function renderTable() {
             <td>${formatNumber(r.itemPrice)}</td>
             <td>${formatNumber(r.reprocessValue)}</td>
             <td>${formatNumber(r.diff)}</td>
+            <td>${r.ratio > 0 ? formatNumber(r.ratio) + 'x' : 'N/A'}</td>
             <td class="${r.recClass}">${r.recommend}</td>
         </tr>`;
     }
@@ -301,15 +316,37 @@ async function calculate(side = 'buy') {
             return;
         }
 
-        // Parse and dedupe item names (ignore trailing quantity or "x")
+        // Parse and dedupe item names
         const itemMap = new Map(); // lowerName -> display name
         for (const rawLine of input.split('\n')) {
-            const line = rawLine.trim();
+            let line = rawLine.trim();
             if (!line) continue;
+
+            // Handle EVE's "List" format (Name > Qty > Group > ... > Price)
+            // Find the first numeric-only part, which is likely the quantity.
+            // The item name is everything before it.
             const parts = line.split(/\s+/);
-            if (!isNaN(parseFloat(parts[parts.length - 1]))) parts.pop();
-            if ((parts[parts.length - 1] || '').toLowerCase() === 'x') parts.pop();
-            const name = parts.join(' ').trim();
+            let qtyIndex = -1;
+            for (let i = 1; i < parts.length; i++) {
+                if (/^\d+$/.test(parts[i]) && isNaN(parseFloat(parts[i-1]))) {
+                    qtyIndex = i;
+                    break;
+                }
+            }
+
+            let name;
+            if (qtyIndex > 0) {
+                // If a quantity was found, the name is the text before it.
+                name = parts.slice(0, qtyIndex).join(' ').trim();
+            } else {
+                // Fallback for simple lists or lines without a clear quantity.
+                // This removes trailing numbers (like quantity) or 'x'.
+                const simplifiedParts = line.split(/\s+/);
+                if (!isNaN(parseFloat(simplifiedParts[simplifiedParts.length - 1]))) simplifiedParts.pop();
+                if ((simplifiedParts[simplifiedParts.length - 1] || '').toLowerCase() === 'x') simplifiedParts.pop();
+                name = simplifiedParts.join(' ').trim();
+            }
+
             if (!name) continue;
             const lower = name.toLowerCase();
             if (!itemMap.has(lower)) itemMap.set(lower, name);
@@ -323,7 +360,7 @@ async function calculate(side = 'buy') {
             if (!typeID) continue;
             const mats = typeMaterials.get(typeID) || [];
             if (mats.length === 0) continue; // non-reprocessable
-            if (ignoreAmmo && isAmmo(typeID)) continue;
+            // Ammo filtering is now done in renderTable, not here
             items.push({ name: display, typeID, mats });
             idsToPrice.add(typeID);
             for (const m of mats) idsToPrice.add(m.matID);
@@ -352,9 +389,10 @@ async function calculate(side = 'buy') {
                 if (matPrice > 0) reprocessValue += matPrice * mat.qty * recoveryFactor;
             }
             const diff = reprocessValue - itemPrice;
+            const ratio = itemPrice > 0 ? reprocessValue / itemPrice : 0;
             const recommend = diff > 0 ? 'Reprocess' : sellText;
             const recClass = diff > 0 ? 'recommend-reprocess' : 'recommend-sell';
-            return { name: it.name, itemPrice, reprocessValue, diff, recommend, recClass };
+            return { name: it.name, typeID: it.typeID, itemPrice, reprocessValue, diff, ratio, recommend, recClass };
         });
 
         renderTable();
@@ -381,6 +419,7 @@ function resetAll() {
     recoveryFactor = BASE_RECOVERY; // reset to 90.6%
     ignoreAmmo = false;
     showOnlyReprocess = false;
+    minRatioFilter = 0;
     sortColumn = 'diff';
     sortDirection = 'desc';
     lastSide = 'buy';
@@ -394,6 +433,41 @@ function resetAll() {
 
     toggleShowReprocessBtn.textContent = 'Show Only Reprocess: Off';
     toggleShowReprocessBtn.setAttribute('aria-pressed', 'false');
+
+    // Ratio filter UI reset
+    if (ratioCustomEl) ratioCustomEl.value = '';
+    updateRatioUI(0);
+}
+
+// ---- UI Updates and Handlers ----
+function updateRatioUI(activeRatio) {
+    const ratios = [0, 1, 2, 5, 10];
+    ratios.forEach(r => {
+        const btnId = `btnRatio${r === 0 ? 'All' : r}`;
+        const btn = $(btnId);
+        if (btn) btn.setAttribute('aria-pressed', activeRatio === r ? 'true' : 'false');
+    });
+    // If custom is active, no preset button is active
+    if (!ratios.includes(activeRatio)) {
+        document.querySelectorAll('.ratio-filters button[id^="btnRatio"]').forEach(b => b.setAttribute('aria-pressed', 'false'));
+        if (ratioCustomEl) ratioCustomEl.value = activeRatio;
+    }
+}
+
+function setRatioFilter(ratio) {
+    if (busy) return;
+    minRatioFilter = ratio;
+    updateRatioUI(ratio);
+    if (ratioCustomEl) ratioCustomEl.value = '';
+    if (currentRows.length > 0) renderTable();
+}
+
+function applyCustomRatioFilter() {
+    if (busy) return;
+    const raw = parseFloat(ratioCustomEl?.value);
+    minRatioFilter = Number.isFinite(raw) && raw >= 0 ? raw : 0;
+    updateRatioUI(minRatioFilter);
+    if (currentRows.length > 0) renderTable();
 }
 
 // Expose functions for inline handlers
@@ -402,19 +476,21 @@ window.toggleIgnoreAmmo = toggleIgnoreAmmo;
 window.toggleShowOnlyReprocess = toggleShowOnlyReprocess;
 window.setSort = setSort;
 window.resetAll = resetAll;
+window.setRatioFilter = setRatioFilter;
+window.applyCustomRatioFilter = applyCustomRatioFilter;
 
 // Recovery handlers
 window.setRecovery906 = setRecovery906;
 window.setRecovery50 = setRecovery50;
 window.applyCustomRecovery = applyCustomRecovery;
 
-// ---- UI toggles (unchanged except recovery removed) ----
+// ---- UI toggles ----
 function toggleIgnoreAmmo() {
     if (busy) return;
     ignoreAmmo = !ignoreAmmo;
     toggleAmmoBtn.textContent = `Ignore Ammunition: ${ignoreAmmo ? 'On' : 'Off'}`;
     toggleAmmoBtn.setAttribute('aria-pressed', ignoreAmmo ? 'true' : 'false');
-    if (inputEl.value.trim()) calculate(lastSide);
+    if (currentRows.length > 0) renderTable();
 }
 
 function toggleShowOnlyReprocess() {

@@ -33,6 +33,16 @@
                 <button id="toggleAmmoBtn" onclick="toggleIgnoreAmmo()" aria-pressed="false">Ignore Ammunition: Off</button>
                 <button id="toggleShowReprocessBtn" onclick="toggleShowOnlyReprocess()" aria-pressed="false">Show Only Reprocess: Off</button>
             </div>
+            <div class="ratio-filters">
+                <span>Min Ratio:</span>
+                <button id="btnRatioAll" onclick="setRatioFilter(0)" aria-pressed="true">All</button>
+                <button id="btnRatio1" onclick="setRatioFilter(1)" aria-pressed="false">≥ 1x</button>
+                <button id="btnRatio2" onclick="setRatioFilter(2)" aria-pressed="false">≥ 2x</button>
+                <button id="btnRatio5" onclick="setRatioFilter(5)" aria-pressed="false">≥ 5x</button>
+                <button id="btnRatio10" onclick="setRatioFilter(10)" aria-pressed="false">≥ 10x</button>
+                <input type="number" id="ratioCustom" step="0.1" min="0" placeholder="Custom ≥">
+                <button id="btnRatioApply" onclick="applyCustomRatioFilter()">Apply</button>
+            </div>
         </div>
 
         <div id="loading" class="loading-overlay" style="display: none;">

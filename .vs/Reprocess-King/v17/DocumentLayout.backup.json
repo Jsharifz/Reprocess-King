@@ -32,7 +32,7 @@
               "RelativeDocumentMoniker": "Reprocess King.js",
               "ToolTip": "D:\\APPS\\EvE\\Reprocess King\\Reprocess-King\\Reprocess King.js",
               "RelativeToolTip": "Reprocess King.js",
-              "ViewState": "AgIAAKoBAAAAAAAAAAAAAMEBAAArAAAAAAAAAA==",
+              "ViewState": "AgIAAMACAAAAAAAAAAAWwGACAAAcAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001646|",
               "WhenOpened": "2025-09-11T04:10:33.977Z",
               "EditorCaption": ""
@@ -47,7 +47,8 @@
               "RelativeToolTip": "Reprocess King.html",
               "ViewState": "AgIAABsAAAAAAAAAAAAAADkAAAAHAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001512|",
-              "WhenOpened": "2025-09-11T04:10:33.941Z"
+              "WhenOpened": "2025-09-11T04:10:33.941Z",
+              "EditorCaption": ""
             },
             {
               "$type": "Document",
@@ -59,7 +60,8 @@
               "RelativeToolTip": "Reprocess King.css",
               "ViewState": "AgIAAJIAAAAAAAAAAAApwJEAAAAwAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003000|",
-              "WhenOpened": "2025-09-11T04:10:33.753Z"
+              "WhenOpened": "2025-09-11T04:10:33.753Z",
+              "EditorCaption": ""
             }
           ]
         }
