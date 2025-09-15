@@ -11,9 +11,23 @@
 <body>
     <div class="container">
         <h1>EVE Online Reprocess King</h1>
-        <p class="subtitle">Paste item list from EVE Online (e.g., from contracts, cargo scans) to find profitable
-            reprocessing opportunities in Jita.</p>
-
+        <p class="subtitle">Paste the item list from EVE Online (e.g., from contracts, cargo scans) to find profitable
+            reprocessing opportunities in Jita or elsewhere!.</p>
+        <p class="subtitle">
+        1. Pick wether you want to use Jita Sell or Buy Prices
+        </p>
+        <p class="subtitle">
+        2. Select or enter  your recovery rate for reprocessing
+        </p>
+        <p class="subtitle">
+        3. Chose if you want to ignore consumables like Ammunition
+        </p>
+        <p class="subtitle">
+        4. Select profitability ratio of mineral value to item value
+        </p>
+        <p class="subtitle">
+        5. Enter the tax value of the station
+        </p>
         <div class="input-area">
             <textarea id="input" rows="10" placeholder="Paste items here, one per line..."></textarea>
         </div>
@@ -39,7 +53,7 @@
                     Only Reprocess: Off</button>
             </div>
             <div class="ratio-filters">
-                <span>Min Ratio:</span>
+                <span>Minimum Profitability Ratio:</span>
                 <button id="btnRatioAll" onclick="setRatioFilter(0)" aria-pressed="true">All</button>
                 <button id="btnRatio1" onclick="setRatioFilter(1)" aria-pressed="false">≥ 1x</button>
                 <button id="btnRatio2" onclick="setRatioFilter(2)" aria-pressed="false">≥ 2x</button>
@@ -47,6 +61,11 @@
                 <button id="btnRatio10" onclick="setRatioFilter(10)" aria-pressed="false">≥ 10x</button>
                 <input type="number" id="ratioCustom" step="0.1" min="0" placeholder="Custom ≥">
                 <button id="btnRatioApply" onclick="applyCustomRatioFilter()">Apply</button>
+            </div>
+            <div class="tax-controls">
+                <span>Tax Rate:</span>
+                <input type="number" id="taxRate" step="0.1" min="0" max="100" value="0">
+                <button id="btnTaxApply" onclick="applyTaxRate()">Apply</button>
             </div>
         </div>
 

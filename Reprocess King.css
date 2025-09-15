@@ -110,7 +110,7 @@ textarea:focus {
     display: flex;
 }
 
-.recovery-controls, .toggles, .ratio-filters {
+.recovery-controls, .toggles, .ratio-filters, .tax-controls {
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
@@ -119,6 +119,21 @@ textarea:focus {
     padding: 10px;
     border-radius: 6px;
     border: 1px solid var(--border);
+}
+
+.ratio-filters,
+.recovery-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.tax-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
 }
 
 .options span {
@@ -259,7 +274,7 @@ td:first-child {
 }
 
 /* Custom number inputs */
-#recoveryCustom, #ratioCustom {
+#recoveryCustom, #ratioCustom, #taxRate {
     height: 38px;
     padding: 0 12px;
     font-size: 15px;
@@ -271,9 +286,14 @@ td:first-child {
     width: 110px;
 }
 
-#recoveryCustom:focus, #ratioCustom:focus {
+#recoveryCustom:focus, #ratioCustom:focus, #taxRate:focus {
     outline: none;
     border-color: var(--accent);
+}
+
+.options input[type="number"] {
+    width: 100px;
+    padding: 6px;
 }
 
 @media (max-width: 600px) {

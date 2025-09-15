@@ -16,7 +16,7 @@ let busy = false;
 const inputEl = $('input');
 const outputEl = $('output');
 const loadingEl = $('loading');
-const toggleAmmoBtn = $('toggleAmmoBtn');
+const toggleAmmoBtn = $('toggleShowReprocessBtn');
 const toggleShowReprocessBtn = $('toggleShowReprocessBtn');
 
 // New recovery control refs
@@ -27,6 +27,7 @@ const btnRecoveryApply = $('btnRecoveryApply');
 
 // Ratio filter refs
 const ratioCustomEl = $('ratioCustom');
+const taxRateEl = $('taxRate');
 
 // Data maps
 let typeNameToId = new Map();
@@ -38,6 +39,7 @@ let groupIdToCategoryId = new Map();
 
 // Toggles/state
 let recoveryFactor = BASE_RECOVERY; // currently selected recovery (0..1)
+let taxRate = 0;                // currently selected tax rate (0..1)
 let ignoreAmmo = false;         // skip items in Charge category
 let showOnlyReprocess = false;  // show only items with diff > 0
 let minRatioFilter = 0;         // minimum value ratio to show
@@ -231,12 +233,28 @@ function applyCustomRecovery() {
     applyRecoveryAndRecalc('custom');
 }
 
+// ---- Tax controls ----
+function applyTaxRate() {
+    if (busy) return;
+    const raw = parseFloat(taxRateEl?.value);
+    const pct = Number.isFinite(raw) ? clampPct(raw) : 0;
+    taxRate = pct / 100;
+    if (currentRows.length > 0) {
+        recalculateWithNewRates();
+        renderTable();
+    }
+}
+
 // ---- Rendering ----
 function renderTable() {
     const isBuy = lastSide === 'buy';
     const priceHeader = isBuy ? 'Jita Buy Price (ISK)' : 'Jita Sell Price (ISK)';
     const diffHeader = isBuy ? 'Difference (Reprocess - Buy)' : 'Difference (Reprocess - Sell)';
-    const rpHeader = `Reprocess Value (ISK, ${(recoveryFactor * 100).toFixed(1)}% Recovery)`;
+    let rpHeader = `Reprocess Value (ISK, ${(recoveryFactor * 100).toFixed(1)}% Recovery`;
+    if (taxRate > 0) {
+        rpHeader += `, ${(taxRate * 100).toFixed(1)}% Tax`;
+    }
+    rpHeader += ')';
 
     // Apply filters
     let filtered = [...currentRows];
@@ -257,7 +275,7 @@ function renderTable() {
         const isAsc = sortDirection === 'asc';
 
         if (typeof valA === 'string') {
-            return isAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+            return isAsc ? valA.localeCompare(valA) : valB.localeCompare(valA);
         }
         return isAsc ? valA - valB : valB - valA;
     });
@@ -383,18 +401,16 @@ async function calculate(side = 'buy') {
         // Compute rows
         currentRows = items.map(it => {
             const itemPrice = +marketJson[it.typeID]?.[sideKey]?.[statKey] || 0;
-            let reprocessValue = 0;
+            let reprocessValueRaw = 0;
             for (const mat of it.mats) {
                 const matPrice = +marketJson[mat.matID]?.[sideKey]?.[statKey] || 0;
-                if (matPrice > 0) reprocessValue += matPrice * mat.qty * recoveryFactor;
+                if (matPrice > 0) reprocessValueRaw += matPrice * mat.qty;
             }
-            const diff = reprocessValue - itemPrice;
-            const ratio = itemPrice > 0 ? reprocessValue / itemPrice : 0;
-            const recommend = diff > 0 ? 'Reprocess' : sellText;
-            const recClass = diff > 0 ? 'recommend-reprocess' : 'recommend-sell';
-            return { name: it.name, typeID: it.typeID, itemPrice, reprocessValue, diff, ratio, recommend, recClass };
+            // Store raw values, apply rates later
+            return { name: it.name, typeID: it.typeID, itemPrice, reprocessValueRaw };
         });
 
+        recalculateWithNewRates(); // Apply initial rates
         renderTable();
 
     } catch (err) {
@@ -407,6 +423,20 @@ async function calculate(side = 'buy') {
     }
 }
 
+// ---- Recalculation ----
+function recalculateWithNewRates() {
+    currentRows.forEach(r => {
+        const reprocessValue = r.reprocessValueRaw * recoveryFactor * (1 - taxRate);
+        const diff = reprocessValue - r.itemPrice;
+        const ratio = r.itemPrice > 0 ? reprocessValue / r.itemPrice : 0;
+        const recommend = diff > 0 ? 'Reprocess' : (lastSide === 'buy' ? 'Sell to Buy Orders' : 'List as Sell Order');
+        const recClass = diff > 0 ? 'recommend-reprocess' : 'recommend-sell';
+
+        // Update row with calculated values
+        Object.assign(r, { reprocessValue, diff, ratio, recommend, recClass });
+    });
+}
+
 // ---- Reset ----
 function resetAll() {
     if (busy) return;
@@ -417,6 +447,7 @@ function resetAll() {
     currentRows = [];
 
     recoveryFactor = BASE_RECOVERY; // reset to 90.6%
+    taxRate = 0;
     ignoreAmmo = false;
     showOnlyReprocess = false;
     minRatioFilter = 0;
@@ -427,6 +458,9 @@ function resetAll() {
     // Recovery UI reset
     if (recoveryCustomEl) recoveryCustomEl.value = (BASE_RECOVERY * 100).toFixed(1);
     updateRecoveryUI('906');
+
+    // Tax UI reset
+    if (taxRateEl) taxRateEl.value = '0';
 
     toggleAmmoBtn.textContent = 'Ignore Ammunition: Off';
     toggleAmmoBtn.setAttribute('aria-pressed', 'false');
@@ -483,6 +517,37 @@ window.applyCustomRatioFilter = applyCustomRatioFilter;
 window.setRecovery906 = setRecovery906;
 window.setRecovery50 = setRecovery50;
 window.applyCustomRecovery = applyCustomRecovery;
+
+// Tax handler
+window.applyTaxRate = applyTaxRate;
+
+// Add event listeners for Enter key on custom inputs
+document.addEventListener('DOMContentLoaded', () => {
+    if (recoveryCustomEl) {
+        recoveryCustomEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                applyCustomRecovery();
+            }
+        });
+    }
+    if (ratioCustomEl) {
+        ratioCustomEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                applyCustomRatioFilter();
+            }
+        });
+    }
+    if (taxRateEl) {
+        taxRateEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                applyTaxRate();
+            }
+        });
+    }
+});
 
 // ---- UI toggles ----
 function toggleIgnoreAmmo() {
