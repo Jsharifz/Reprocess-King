@@ -16,7 +16,7 @@ let busy = false;
 const inputEl = $('input');
 const outputEl = $('output');
 const loadingEl = $('loading');
-const toggleAmmoBtn = $('toggleShowReprocessBtn');
+const toggleAmmoBtn = $('toggleAmmoBtn');
 const toggleShowReprocessBtn = $('toggleShowReprocessBtn');
 
 // New recovery control refs
@@ -38,8 +38,9 @@ let typeIdToGroupId = new Map();
 let groupIdToCategoryId = new Map();
 
 // Toggles/state
-let recoveryFactor = BASE_RECOVERY; // currently selected recovery (0..1)
+let recoveryRate = BASE_RECOVERY; // currently selected recovery (0..1)
 let taxRate = 0;                // currently selected tax rate (0..1)
+let taxApplication = 'minerals'; // 'minerals', 'item', 'both'
 let ignoreAmmo = false;         // skip items in Charge category
 let showOnlyReprocess = false;  // show only items with diff > 0
 let minRatioFilter = 0;         // minimum value ratio to show
@@ -47,6 +48,14 @@ let sortColumn = 'diff';        // Column to sort by
 let sortDirection = 'desc';     // 'asc' or 'desc'
 let lastSide = 'buy';
 let currentRows = [];           // Holds the currently displayed data
+
+const taxToggleOrder = ['minerals', 'item', 'both'];
+const taxToggleText = {
+    'minerals': 'Tax on: Minerals',
+    'item': 'Tax on: Item Value',
+    'both': 'Tax on: Both'
+};
+
 
 // ---- Utilities ----
 function setLoading(isLoading) {
@@ -202,26 +211,27 @@ function updateRecoveryUI(active) {
     if (btnRecovery50) btnRecovery50.setAttribute('aria-pressed', active === '50' ? 'true' : 'false');
     // Keep the input value in sync with the current factor for convenience
     if (recoveryCustomEl) {
-        recoveryCustomEl.value = (recoveryFactor * 100).toFixed(1);
+        recoveryCustomEl.value = (recoveryRate * 100).toFixed(1);
     }
 }
 
 function applyRecoveryAndRecalc(activeTag) {
     updateRecoveryUI(activeTag);
-    if (inputEl.value.trim()) {
-        calculate(lastSide);
+    if (currentRows.length > 0) {
+        recalculateWithNewRates();
+        renderTable();
     }
 }
 
 function setRecovery906() {
     if (busy) return;
-    recoveryFactor = BASE_RECOVERY;
+    recoveryRate = BASE_RECOVERY;
     applyRecoveryAndRecalc('906');
 }
 
 function setRecovery50() {
     if (busy) return;
-    recoveryFactor = 0.5;
+    recoveryRate = 0.5;
     applyRecoveryAndRecalc('50');
 }
 
@@ -229,16 +239,34 @@ function applyCustomRecovery() {
     if (busy) return;
     const raw = parseFloat(recoveryCustomEl?.value);
     const pct = Number.isFinite(raw) ? clampPct(raw) : 100;
-    recoveryFactor = pct / 100;
+    recoveryRate = pct / 100;
     applyRecoveryAndRecalc('custom');
 }
 
 // ---- Tax controls ----
 function applyTaxRate() {
+    const taxInput = document.getElementById('taxRate');
+    let rate = parseFloat(taxInput.value);
+    if (isNaN(rate) || rate < 0) {
+        rate = 0;
+    }
+    taxRate = rate / 100;
+    taxInput.value = rate; // Set back the cleaned value
+    if (currentRows.length > 0) {
+        recalculateWithNewRates();
+        renderTable();
+    }
+}
+
+function setTaxApplication(application) {
     if (busy) return;
-    const raw = parseFloat(taxRateEl?.value);
-    const pct = Number.isFinite(raw) ? clampPct(raw) : 0;
-    taxRate = pct / 100;
+    taxApplication = application;
+
+    // Update button UI
+    document.getElementById('tax-on-minerals').setAttribute('aria-pressed', application === 'minerals');
+    document.getElementById('tax-on-item').setAttribute('aria-pressed', application === 'item');
+    document.getElementById('tax-on-both').setAttribute('aria-pressed', application === 'both');
+
     if (currentRows.length > 0) {
         recalculateWithNewRates();
         renderTable();
@@ -248,13 +276,21 @@ function applyTaxRate() {
 // ---- Rendering ----
 function renderTable() {
     const isBuy = lastSide === 'buy';
-    const priceHeader = isBuy ? 'Jita Buy Price (ISK)' : 'Jita Sell Price (ISK)';
+    let priceHeader = isBuy ? 'Jita Buy Price (ISK' : 'Jita Sell Price (ISK';
     const diffHeader = isBuy ? 'Difference (Reprocess - Buy)' : 'Difference (Reprocess - Sell)';
-    let rpHeader = `Reprocess Value (ISK, ${(recoveryFactor * 100).toFixed(1)}% Recovery`;
-    if (taxRate > 0) {
+    let rpHeader = `Reprocess Value (ISK, ${(recoveryRate * 100).toFixed(1)}% Recovery`;
+
+    // Add tax info to Reprocess Value header if applicable
+    if (taxRate > 0 && (taxApplication === 'minerals' || taxApplication === 'both')) {
         rpHeader += `, ${(taxRate * 100).toFixed(1)}% Tax`;
     }
     rpHeader += ')';
+
+    // Add tax info to Jita Price header if applicable
+    if (taxRate > 0 && (taxApplication === 'item' || taxApplication === 'both')) {
+        priceHeader += `, ${(taxRate * 100).toFixed(1)}% Tax`;
+    }
+    priceHeader += ')';
 
     // Apply filters
     let filtered = [...currentRows];
@@ -294,7 +330,7 @@ function renderTable() {
     // Build table HTML
     let html = `<table><tr>
         ${th('name', 'Item')}
-        ${th('itemPrice', priceHeader)}
+        ${th('displayItemPrice', priceHeader)}
         ${th('reprocessValue', rpHeader)}
         ${th('diff', diffHeader)}
         ${th('ratio', 'Ratio')}
@@ -304,7 +340,7 @@ function renderTable() {
     for (const r of filtered) {
         html += `<tr>
             <td style="text-align:left">${r.name}</td>
-            <td>${formatNumber(r.itemPrice)}</td>
+            <td>${formatNumber(r.displayItemPrice)}</td>
             <td>${formatNumber(r.reprocessValue)}</td>
             <td>${formatNumber(r.diff)}</td>
             <td>${r.ratio > 0 ? formatNumber(r.ratio) + 'x' : 'N/A'}</td>
@@ -426,14 +462,27 @@ async function calculate(side = 'buy') {
 // ---- Recalculation ----
 function recalculateWithNewRates() {
     currentRows.forEach(r => {
-        const reprocessValue = r.reprocessValueRaw * recoveryFactor * (1 - taxRate);
-        const diff = reprocessValue - r.itemPrice;
-        const ratio = r.itemPrice > 0 ? reprocessValue / r.itemPrice : 0;
+        const grossMineralValue = r.reprocessValueRaw * recoveryRate;
+        
+        let taxOnMineral = 0;
+        let taxOnItem = 0;
+
+        if (taxApplication === 'minerals' || taxApplication === 'both') {
+            taxOnMineral = grossMineralValue * taxRate;
+        }
+        if (taxApplication === 'item' || taxApplication === 'both') {
+            taxOnItem = r.itemPrice * taxRate;
+        }
+
+        const reprocessValue = grossMineralValue - taxOnMineral;
+        const displayItemPrice = r.itemPrice + taxOnItem;
+        const diff = reprocessValue - displayItemPrice;
+        const ratio = displayItemPrice > 0 ? reprocessValue / displayItemPrice : 0;
         const recommend = diff > 0 ? 'Reprocess' : (lastSide === 'buy' ? 'Sell to Buy Orders' : 'List as Sell Order');
         const recClass = diff > 0 ? 'recommend-reprocess' : 'recommend-sell';
 
         // Update row with calculated values
-        Object.assign(r, { reprocessValue, diff, ratio, recommend, recClass });
+        Object.assign(r, { reprocessValue, displayItemPrice, diff, ratio, recommend, recClass });
     });
 }
 
@@ -446,8 +495,9 @@ function resetAll() {
     loadingEl.style.display = 'none';
     currentRows = [];
 
-    recoveryFactor = BASE_RECOVERY; // reset to 90.6%
+    recoveryRate = BASE_RECOVERY; // reset to 90.6%
     taxRate = 0;
+    taxApplication = 'minerals';
     ignoreAmmo = false;
     showOnlyReprocess = false;
     minRatioFilter = 0;
@@ -461,6 +511,8 @@ function resetAll() {
 
     // Tax UI reset
     if (taxRateEl) taxRateEl.value = '0';
+    setTaxApplication('minerals');
+
 
     toggleAmmoBtn.textContent = 'Ignore Ammunition: Off';
     toggleAmmoBtn.setAttribute('aria-pressed', 'false');
@@ -520,6 +572,7 @@ window.applyCustomRecovery = applyCustomRecovery;
 
 // Tax handler
 window.applyTaxRate = applyTaxRate;
+window.setTaxApplication = setTaxApplication;
 
 // Add event listeners for Enter key on custom inputs
 document.addEventListener('DOMContentLoaded', () => {
