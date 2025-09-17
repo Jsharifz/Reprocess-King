@@ -10,6 +10,7 @@
     --accent: #2DCF89;          /* Bright Gallente green for actions */
     --accent-hover: #3DDEA0;    /* Lighter green for hover */
     --accent-active: #28a745;   /* Active/pressed state green */
+    --accent-shadow: #1a682c;   /* Darker green for button shadow */
     --danger: #E57373;
 }
 
@@ -68,6 +69,39 @@ h1 {
     text-align: center;
     color: var(--muted);
     margin-bottom: 25px;
+}
+
+/* Instructions Grid */
+.instructions-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 15px;
+    margin: 25px 0;
+}
+
+.instruction-box {
+    background-color: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 20px;
+    text-align: center;
+    transition: transform 0.2s ease-out, box-shadow 0.2s ease-out, border-color 0.2s ease-out;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.instruction-box:hover {
+    transform: translateY(-4px) scale(1.03);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.5);
+    border-color: var(--accent);
+}
+
+.instruction-box p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.5;
 }
 
 textarea {
@@ -152,23 +186,40 @@ button {
     border-radius: 5px;
     cursor: pointer;
     font-size: 14px;
-    transition: background-color 0.2s ease;
+    transition: all 0.15s ease-out;
+    /* Remove initial shadow and set transform origin */
+    box-shadow: none;
+    transform-origin: bottom center;
 }
 
 button:hover {
     background-color: var(--accent-hover);
+    /* Reduce vertical height, lift, and add a darker bottom shadow */
+    transform: translateY(-2px) scaleY(0.925);
+    box-shadow: 0 6px 0 var(--accent-shadow);
+}
+
+button:active {
+    /* On click, flatten the button back down */
+    transform: translateY(0) scaleY(1);
+    box-shadow: none;
 }
 
 button:disabled {
     background-color: #333;
     color: #777;
     cursor: not-allowed;
+    /* Ensure disabled state is flat */
+    transform: none;
+    box-shadow: none;
 }
 
 button[aria-pressed="true"] {
     background-color: var(--accent-active);
     color: black;
+    /* Use an inset shadow and ensure it's flat */
     box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+    transform: none;
 }
 
 /* Loading overlay with spinner */
@@ -224,6 +275,12 @@ th {
     font-weight: 600;
     text-align: right;
     user-select: none;
+}
+
+/* Center align columns 2 through 6 */
+th:nth-child(n+2),
+td:nth-child(n+2) {
+    text-align: center;
 }
 
 th:first-child { text-align: left; }
@@ -283,7 +340,7 @@ td:first-child {
     background-color: var(--surface-2);
     color: var(--text);
     box-sizing: border-box;
-    width: 110px;
+    width: 140px;
 }
 
 #recoveryCustom:focus, #ratioCustom:focus, #taxRate:focus {
@@ -303,4 +360,22 @@ td:first-child {
     }
     table { font-size: 12px; }
     th, td { padding: 8px 10px; }
+}
+
+/* Custom Tooltip */
+.tooltip {
+    position: absolute;
+    background-color: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 12px;
+    font-size: inherit; /* Match surrounding font size */
+    z-index: 100;
+    pointer-events: none; /* So it doesn't interfere with mouse events */
+    opacity: 0;
+    transition: opacity 0.15s ease-out; /* Faster fade-in */
+    white-space: pre-wrap; /* Respect newlines in the content */
+    max-width: 350px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
 }

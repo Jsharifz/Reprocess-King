@@ -25,12 +25,16 @@ const btnRecovery906 = $('btnRecovery906');
 const recoveryCustomEl = $('recoveryCustom');
 const btnRecoveryApply = $('btnRecoveryApply');
 
+// Tooltip element
+let tooltipEl;
+
 // Ratio filter refs
 const ratioCustomEl = $('ratioCustom');
 const taxRateEl = $('taxRate');
 
 // Data maps
 let typeNameToId = new Map();
+let typeIdToName = new Map(); // For reverse lookups
 let typeMaterials = new Map();
 
 // New mappings for ammo detection (via group->category)
@@ -164,8 +168,18 @@ async function loadStaticData() {
             const typeName = (parts[2] || '').trim().replace(/^"|"$/g, '');
             if (!Number.isFinite(typeID)) return;
             typeNameToId.set(typeName.toLowerCase(), typeID);
+            typeIdToName.set(typeID, typeName); // Populate reverse map
             if (Number.isFinite(groupID)) typeIdToGroupId.set(typeID, groupID);
         });
+
+        // Data patch for incorrect names from the dump
+        const megacyteBadName = '000 - molocath vynneve';
+        if (typeNameToId.has(megacyteBadName)) {
+            const typeID = typeNameToId.get(megacyteBadName);
+            typeIdToName.set(typeID, 'Megacyte');
+            typeNameToId.delete(megacyteBadName);
+            typeNameToId.set('megacyte', typeID);
+        }
 
         // invTypeMaterials: typeID,materialTypeID,quantity
         matsText.split('\n').slice(1).forEach(line => {
@@ -321,6 +335,28 @@ function renderTable() {
         return;
     }
 
+    // Calculate totals from the filtered data
+    const totalItemPrice = filtered.reduce((sum, r) => sum + r.displayItemPrice, 0);
+    const totalReprocessValue = filtered.reduce((sum, r) => sum + r.reprocessValue, 0);
+    const totalDiff = filtered.reduce((sum, r) => sum + r.diff, 0);
+    const totalRatio = totalItemPrice > 0 ? totalReprocessValue / totalItemPrice : 0;
+
+    // Aggregate total materials for the footer tooltip
+    const totalMaterials = new Map();
+    for (const r of filtered) {
+        for (const d of r.reprocessDetails) {
+            if (totalMaterials.has(d.name)) {
+                totalMaterials.get(d.name).quantity += d.quantity;
+            } else {
+                totalMaterials.set(d.name, { ...d });
+            }
+        }
+    }
+    const totalTooltipText = Array.from(totalMaterials.values())
+        .sort((a, b) => b.price * b.quantity - a.price * a.quantity) // Sort by value desc
+        .map(d => `${d.name} x ${formatNumber(d.quantity)} = ${formatNumber(d.price * d.quantity)} ISK`)
+        .join('\n');
+
     // Helper to generate sortable table headers
     const th = (key, title) => {
         const arrow = sortColumn === key ? (sortDirection === 'asc' ? '▲' : '▼') : '';
@@ -328,26 +364,39 @@ function renderTable() {
     };
 
     // Build table HTML
-    let html = `<table><tr>
+    let html = `<table><thead><tr>
         ${th('name', 'Item')}
         ${th('displayItemPrice', priceHeader)}
         ${th('reprocessValue', rpHeader)}
         ${th('diff', diffHeader)}
         ${th('ratio', 'Ratio')}
         ${th('recommend', 'Recommendation')}
-    </tr>`;
+    </tr></thead><tbody>`;
 
     for (const r of filtered) {
+        const tooltipText = r.reprocessDetails
+            .map(d => `${d.name} x ${formatNumber(d.quantity)} = ${formatNumber(d.price * d.quantity)} ISK`)
+            .join('\n');
+
         html += `<tr>
             <td style="text-align:left">${r.name}</td>
             <td>${formatNumber(r.displayItemPrice)}</td>
-            <td>${formatNumber(r.reprocessValue)}</td>
+            <td data-tooltip="${tooltipText}">${formatNumber(r.reprocessValue)}</td>
             <td>${formatNumber(r.diff)}</td>
             <td>${r.ratio > 0 ? formatNumber(r.ratio) + 'x' : 'N/A'}</td>
             <td class="${r.recClass}">${r.recommend}</td>
         </tr>`;
     }
-    html += '</table>';
+    html += `</tbody><tfoot>
+        <tr>
+            <td style="text-align:left; font-weight: bold;">Total</td>
+            <td style="font-weight: bold;">${formatNumber(totalItemPrice)}</td>
+            <td style="font-weight: bold;" data-tooltip="${totalTooltipText}">${formatNumber(totalReprocessValue)}</td>
+            <td style="font-weight: bold;">${formatNumber(totalDiff)}</td>
+            <td style="font-weight: bold;">${totalRatio > 0 ? formatNumber(totalRatio) + 'x' : 'N/A'}</td>
+            <td></td>
+        </tr>
+    </tfoot></table>`;
 
     outputEl.innerHTML = html;
 }
@@ -438,12 +487,20 @@ async function calculate(side = 'buy') {
         currentRows = items.map(it => {
             const itemPrice = +marketJson[it.typeID]?.[sideKey]?.[statKey] || 0;
             let reprocessValueRaw = 0;
+            const reprocessMaterials = [];
             for (const mat of it.mats) {
                 const matPrice = +marketJson[mat.matID]?.[sideKey]?.[statKey] || 0;
-                if (matPrice > 0) reprocessValueRaw += matPrice * mat.qty;
+                if (matPrice > 0) {
+                    reprocessValueRaw += matPrice * mat.qty;
+                    reprocessMaterials.push({
+                        name: typeIdToName.get(mat.matID) || `Unknown ID ${mat.matID}`,
+                        baseQuantity: mat.qty,
+                        price: matPrice,
+                    });
+                }
             }
             // Store raw values, apply rates later
-            return { name: it.name, typeID: it.typeID, itemPrice, reprocessValueRaw };
+            return { name: it.name, typeID: it.typeID, itemPrice, reprocessValueRaw, reprocessMaterials };
         });
 
         recalculateWithNewRates(); // Apply initial rates
@@ -481,8 +538,18 @@ function recalculateWithNewRates() {
         const recommend = diff > 0 ? 'Reprocess' : (lastSide === 'buy' ? 'Sell to Buy Orders' : 'List as Sell Order');
         const recClass = diff > 0 ? 'recommend-reprocess' : 'recommend-sell';
 
+        // Update tooltip details with current recovery rate
+        const reprocessDetails = r.reprocessMaterials.map(m => {
+            const recoveredQty = Math.floor(m.baseQuantity * recoveryRate);
+            return {
+                name: m.name,
+                quantity: recoveredQty,
+                price: m.price,
+            };
+        });
+
         // Update row with calculated values
-        Object.assign(r, { reprocessValue, displayItemPrice, diff, ratio, recommend, recClass });
+        Object.assign(r, { reprocessValue, displayItemPrice, diff, ratio, recommend, recClass, reprocessDetails });
     });
 }
 
@@ -576,6 +643,49 @@ window.setTaxApplication = setTaxApplication;
 
 // Add event listeners for Enter key on custom inputs
 document.addEventListener('DOMContentLoaded', () => {
+    // Create and append the tooltip element once
+    tooltipEl = document.createElement('div');
+    tooltipEl.className = 'tooltip';
+    document.body.appendChild(tooltipEl);
+
+    // Tooltip event delegation from the output container
+    outputEl.addEventListener('mouseover', (e) => {
+        const target = e.target.closest('[data-tooltip]');
+        if (target && target.dataset.tooltip) {
+            tooltipEl.textContent = target.dataset.tooltip;
+            tooltipEl.style.opacity = '1';
+        }
+    });
+
+    outputEl.addEventListener('mouseout', (e) => {
+        const target = e.target.closest('[data-tooltip]');
+        if (target) {
+            tooltipEl.style.opacity = '0';
+        }
+    });
+
+    outputEl.addEventListener('mousemove', (e) => {
+        if (tooltipEl.style.opacity === '1') {
+            const tooltipHeight = tooltipEl.offsetHeight;
+            const viewportHeight = window.innerHeight;
+            const spaceBelow = viewportHeight - e.clientY;
+            const offset = 15; // Distance from cursor
+
+            let top;
+
+            // If there isn't enough space below the cursor, show the tooltip above it.
+            if (spaceBelow < (tooltipHeight + offset)) {
+                top = e.pageY - tooltipHeight - offset;
+            } else {
+                // Otherwise, show it below.
+                top = e.pageY + offset;
+            }
+
+            tooltipEl.style.left = `${e.pageX + offset}px`;
+            tooltipEl.style.top = `${top}px`;
+        }
+    });
+
     if (recoveryCustomEl) {
         recoveryCustomEl.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
