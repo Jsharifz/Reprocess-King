@@ -78,6 +78,98 @@ function isAmmo(typeID) {
     return categoryID === 8;
 }
 
+// New utility to check for bombs
+function isBomb(typeID) {
+    const groupID = typeIdToGroupId.get(typeID);
+    // Group ID for bombs in EVE
+    return groupID === 90;
+}
+
+// New utility to check for condensers
+function isCondenser(typeID) {
+    const groupID = typeIdToGroupId.get(typeID);
+    // Group ID for condensers in EVE
+    return groupID === 1775;
+}
+
+// New utility to check for Triglavian (Entropic Disintegrator) charges
+function isTriglavianCharge(typeID) {
+    const groupID = typeIdToGroupId.get(typeID);
+    // Group IDs for Entropic Disintegrator charges (e.g., Meson, Baryon, Tetryon)
+    const triglavianChargeGroupIDs = [1864, 1865, 1866];
+    return triglavianChargeGroupIDs.includes(groupID);
+}
+
+// New utility to check for Vorton Projector charges
+function isVortonProjectorCharge(typeID) {
+    const groupID = typeIdToGroupId.get(typeID);
+    // Group IDs for Vorton Projector charges (based on EVE SDE data)
+    const vortonProjectorChargeGroupIDs = [1919, 1920, 1921];
+    return vortonProjectorChargeGroupIDs.includes(groupID);
+}
+
+// Get tooltip normalization factor based on item name and groupID
+function getTooltipNormalizationFactor(typeID, itemName) {
+    const groupID = typeIdToGroupId.get(typeID);
+    const lowerName = itemName.toLowerCase();
+    
+    // Debug logging
+    console.log(`Tooltip normalization check: ${itemName} - TypeID: ${typeID}, GroupID: ${groupID}`);
+    
+    // Check by group ID first
+    if (groupID === 90) {
+        console.log(`Found bomb by groupID: ${itemName}`);
+        return 5; // Bombs: multiply by 5 (was 20, now reduced by 4x)
+    }
+    if (groupID === 1775) {
+        console.log(`Found condenser by groupID: ${itemName}`);
+        return 0.2; // Condensers: divide by 5 (multiply by 0.2)
+    }
+    if ([1864, 1865, 1866].includes(groupID)) {
+        console.log(`Found Triglavian charge by groupID: ${itemName}`);
+        return 0.02; // Triglavian: divide by 50 (multiply by 0.02)
+    }
+    if ([1919, 1920, 1921].includes(groupID)) {
+        console.log(`Found Vorton charge by groupID: ${itemName}`);
+        return 0.2; // Vorton: divide by 5 (multiply by 0.2)
+    }
+    
+    // Fallback: check by name patterns if group ID detection fails
+    if (lowerName.includes('bomb')) {
+        console.log(`Found bomb by name: ${itemName}`);
+        return 5; // Bombs: multiply by 5 (was 20, now reduced by 4x)
+    }
+    if (lowerName.includes('condenser')) {
+        console.log(`Found condenser by name: ${itemName}`);
+        return 0.2; // Condensers: divide by 5
+    }
+    if (lowerName.includes('meson') || lowerName.includes('baryon') || lowerName.includes('tetryon')) {
+        console.log(`Found Triglavian by name: ${itemName}`);
+        return 0.02; // Triglavian: divide by 50
+    }
+    // Enhanced Scarab Breacher Pod detection
+    if ((lowerName.includes('scarab') && lowerName.includes('breacher')) || 
+        lowerName.includes('scarab breacher pod')) {
+        console.log(`Found Scarab Breacher Pod by name: ${itemName}`);
+        return 5; // Scarab Breacher Pods: multiply by 5
+    }
+    
+    return 1; // No normalization
+}
+
+// New utility to check for batch-reprocessed charges
+function isBatchReprocessedCharge(typeID) {
+    // All ammo (categoryID 8) is reprocessed in batches of 100, except for Frequency Crystals (groupID 86).
+    if (!isAmmo(typeID)) {
+        return false;
+    }
+
+    const groupID = typeIdToGroupId.get(typeID);
+    const isCrystal = groupID === 86; // Group ID for all Frequency Crystals
+
+    return !isCrystal;
+}
+
 // Robust CSV line parser (handles quotes, commas, and escaped quotes "")
 function parseCsvLine(line) {
     const out = [];
@@ -110,7 +202,7 @@ async function fetchJsonFresh(url, maxAgeMs = MAX_MARKET_AGE_MS) {
     const res = await fetch(u.toString(), { cache: 'no-store' });
     if (!res.ok) throw new Error('Failed to fetch market data');
 
-    // Validate freshness by standard headers (Age, Last-Modified, Date)
+    // Validates freshness by standard headers (Age, Last-Modified, Date)
     const now = Date.now();
     const ageHeader = res.headers.get('age');
     if (ageHeader) {
@@ -419,8 +511,8 @@ async function calculate(side = 'buy') {
             return;
         }
 
-        // Parse and dedupe item names
-        const itemMap = new Map(); // lowerName -> display name
+        // Parse and dedupe item names, aggregating quantities.
+        const itemMap = new Map(); // lowerName -> { displayName: string, quantity: number }
         for (const rawLine of input.split('\n')) {
             let line = rawLine.trim();
             if (!line) continue;
@@ -438,9 +530,12 @@ async function calculate(side = 'buy') {
             }
 
             let name;
+            let quantity = 1; // Default to 1 if not specified
+
             if (qtyIndex > 0) {
                 // If a quantity was found, the name is the text before it.
                 name = parts.slice(0, qtyIndex).join(' ').trim();
+                quantity = parseInt(parts[qtyIndex], 10);
             } else {
                 // Fallback for simple lists or lines without a clear quantity.
                 // This removes trailing numbers (like quantity) or 'x'.
@@ -452,19 +547,23 @@ async function calculate(side = 'buy') {
 
             if (!name) continue;
             const lower = name.toLowerCase();
-            if (!itemMap.has(lower)) itemMap.set(lower, name);
+            if (itemMap.has(lower)) {
+                itemMap.get(lower).quantity += quantity;
+            } else {
+                itemMap.set(lower, { displayName: name, quantity });
+            }
         }
 
         // Build item list and gather all required typeIDs to price (items + mats)
         const items = [];
         const idsToPrice = new Set();
-        for (const [lowerName, display] of itemMap) {
+        for (const [lowerName, { displayName, quantity }] of itemMap) {
             const typeID = typeNameToId.get(lowerName);
             if (!typeID) continue;
             const mats = typeMaterials.get(typeID) || [];
             if (mats.length === 0) continue; // non-reprocessable
             // Ammo filtering is now done in renderTable, not here
-            items.push({ name: display, typeID, mats });
+            items.push({ name: displayName, typeID, mats, quantity });
             idsToPrice.add(typeID);
             for (const m of mats) idsToPrice.add(m.matID);
         }
@@ -485,22 +584,37 @@ async function calculate(side = 'buy') {
 
         // Compute rows
         currentRows = items.map(it => {
-            const itemPrice = +marketJson[it.typeID]?.[sideKey]?.[statKey] || 0;
+            const itemPrice = (+marketJson[it.typeID]?.[sideKey]?.[statKey] || 0) * it.quantity;
             let reprocessValueRaw = 0;
             const reprocessMaterials = [];
+
+            // Determine the correct batch size for reprocessing
+            let batchSize = 1;
+            if (isBatchReprocessedCharge(it.typeID)) {
+                batchSize = 100;
+            }
+            
+            let singleBatchReprocessValue = 0;
             for (const mat of it.mats) {
                 const matPrice = +marketJson[mat.matID]?.[sideKey]?.[statKey] || 0;
                 if (matPrice > 0) {
-                    reprocessValueRaw += matPrice * mat.qty;
+                    // SDE data for all ammo is for a batch of 100.
+                    // Triglavian charges reprocess individually, so we must divide the batch material quantity by 100.
+                    const matQtyPerBatch = isTriglavianCharge(it.typeID) ? mat.qty / 100 : mat.qty;
+                    singleBatchReprocessValue += matPrice * matQtyPerBatch;
                     reprocessMaterials.push({
                         name: typeIdToName.get(mat.matID) || `Unknown ID ${mat.matID}`,
-                        baseQuantity: mat.qty,
+                        baseQuantity: matQtyPerBatch, // Store base qty per batch
                         price: matPrice,
                     });
                 }
             }
+            // The raw reprocess value is the value of one batch, times the number of batches.
+            const numBatches = it.quantity / batchSize;
+            reprocessValueRaw = singleBatchReprocessValue * numBatches;
+
             // Store raw values, apply rates later
-            return { name: it.name, typeID: it.typeID, itemPrice, reprocessValueRaw, reprocessMaterials };
+            return { name: `${it.name} x ${it.quantity}`, typeID: it.typeID, itemPrice, reprocessValueRaw, reprocessMaterials, quantity: it.quantity, batchSize };
         });
 
         recalculateWithNewRates(); // Apply initial rates
@@ -519,7 +633,12 @@ async function calculate(side = 'buy') {
 // ---- Recalculation ----
 function recalculateWithNewRates() {
     currentRows.forEach(r => {
-        const grossMineralValue = r.reprocessValueRaw * recoveryRate;
+        // Get tooltip normalization factor for this item
+        const normalizationFactor = getTooltipNormalizationFactor(r.typeID, r.name);
+        
+        // Apply normalization to the raw reprocess value BEFORE applying recovery rate
+        const normalizedReprocessValueRaw = r.reprocessValueRaw * normalizationFactor;
+        const grossMineralValue = normalizedReprocessValueRaw * recoveryRate;
         
         let taxOnMineral = 0;
         let taxOnItem = 0;
@@ -532,15 +651,20 @@ function recalculateWithNewRates() {
         }
 
         const reprocessValue = grossMineralValue - taxOnMineral;
-        const displayItemPrice = r.itemPrice + taxOnItem;
+        const displayItemPrice = r.itemPrice - taxOnItem; // FIXED: Changed from + to -
         const diff = reprocessValue - displayItemPrice;
         const ratio = displayItemPrice > 0 ? reprocessValue / displayItemPrice : 0;
         const recommend = diff > 0 ? 'Reprocess' : (lastSide === 'buy' ? 'Sell to Buy Orders' : 'List as Sell Order');
         const recClass = diff > 0 ? 'recommend-reprocess' : 'recommend-sell';
 
-        // Update tooltip details with current recovery rate
+        // Update tooltip details with current recovery rate and normalization
         const reprocessDetails = r.reprocessMaterials.map(m => {
-            const recoveredQty = Math.floor(m.baseQuantity * recoveryRate);
+            const numBatches = r.quantity / r.batchSize;
+            let recoveredQty = Math.floor(m.baseQuantity * numBatches * recoveryRate);
+
+            // Apply normalization factor for tooltip display
+            recoveredQty = Math.floor(recoveredQty * normalizationFactor);
+
             return {
                 name: m.name,
                 quantity: recoveredQty,
@@ -548,7 +672,6 @@ function recalculateWithNewRates() {
             };
         });
 
-        // Update row with calculated values
         Object.assign(r, { reprocessValue, displayItemPrice, diff, ratio, recommend, recClass, reprocessDetails });
     });
 }
