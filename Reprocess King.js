@@ -18,6 +18,7 @@ const outputEl = $('output');
 const loadingEl = $('loading');
 const toggleAmmoBtn = $('toggleAmmoBtn');
 const toggleShowReprocessBtn = $('toggleShowReprocessBtn');
+const toggleNonReprocessableBtn = $('toggleNonReprocessableBtn');
 
 // New recovery control refs
 const btnRecovery50 = $('btnRecovery50');
@@ -47,6 +48,7 @@ let taxRate = 0;                // currently selected tax rate (0..1)
 let taxApplication = 'minerals'; // 'minerals', 'item', 'both'
 let ignoreAmmo = false;         // skip items in Charge category
 let showOnlyReprocess = false;  // show only items with diff > 0
+let includeNonReprocessable = true; // CHANGED: include items that can't be reprocessed by default
 let minRatioFilter = 0;         // minimum value ratio to show
 let sortColumn = 'diff';        // Column to sort by
 let sortDirection = 'desc';     // 'asc' or 'desc'
@@ -168,6 +170,12 @@ function isBatchReprocessedCharge(typeID) {
     const isCrystal = groupID === 86; // Group ID for all Frequency Crystals
 
     return !isCrystal;
+}
+
+// Check if an item can be reprocessed
+function canReprocess(typeID) {
+    const mats = typeMaterials.get(typeID) || [];
+    return mats.length > 0;
 }
 
 // Robust CSV line parser (handles quotes, commas, and escaped quotes "")
@@ -406,6 +414,10 @@ function renderTable() {
     if (showOnlyReprocess) {
         filtered = filtered.filter(r => r.diff > 0);
     }
+    // SIMPLIFIED: Remove the non-reprocessable filter since we want to show all items by default
+    // if (!includeNonReprocessable) {
+    //     filtered = filtered.filter(r => r.canReprocess);
+    // }
     if (minRatioFilter > 0) {
         filtered = filtered.filter(r => r.ratio >= minRatioFilter);
     }
@@ -561,9 +573,9 @@ async function calculate(side = 'buy') {
             const typeID = typeNameToId.get(lowerName);
             if (!typeID) continue;
             const mats = typeMaterials.get(typeID) || [];
-            if (mats.length === 0) continue; // non-reprocessable
-            // Ammo filtering is now done in renderTable, not here
-            items.push({ name: displayName, typeID, mats, quantity });
+            
+            // Include all items, whether reprocessable or not
+            items.push({ name: displayName, typeID, mats, quantity, canReprocess: mats.length > 0 });
             idsToPrice.add(typeID);
             for (const m of mats) idsToPrice.add(m.matID);
         }
@@ -588,16 +600,16 @@ async function calculate(side = 'buy') {
             let reprocessValueRaw = 0;
             const reprocessMaterials = [];
 
-            // Determine the correct batch size for reprocessing
-            let batchSize = 1;
-            if (isBatchReprocessedCharge(it.typeID)) {
-                batchSize = 100;
-            }
-            
-            let singleBatchReprocessValue = 0;
-            for (const mat of it.mats) {
-                const matPrice = +marketJson[mat.matID]?.[sideKey]?.[statKey] || 0;
-                if (matPrice > 0) {
+            if (it.canReprocess) {
+                // Determine the correct batch size for reprocessing
+                let batchSize = 1;
+                if (isBatchReprocessedCharge(it.typeID)) {
+                    batchSize = 100;
+                }
+                
+                let singleBatchReprocessValue = 0;
+                for (const mat of it.mats) {
+                    const matPrice = +marketJson[mat.matID]?.[sideKey]?.[statKey] || 0;
                     // SDE data for all ammo is for a batch of 100.
                     // Triglavian charges reprocess individually, so we must divide the batch material quantity by 100.
                     const matQtyPerBatch = isTriglavianCharge(it.typeID) ? mat.qty / 100 : mat.qty;
@@ -608,13 +620,34 @@ async function calculate(side = 'buy') {
                         price: matPrice,
                     });
                 }
-            }
-            // The raw reprocess value is the value of one batch, times the number of batches.
-            const numBatches = it.quantity / batchSize;
-            reprocessValueRaw = singleBatchReprocessValue * numBatches;
+                // The raw reprocess value is the value of one batch, times the number of batches.
+                const numBatches = it.quantity / batchSize;
+                reprocessValueRaw = singleBatchReprocessValue * numBatches;
 
-            // Store raw values, apply rates later
-            return { name: `${it.name} x ${it.quantity}`, typeID: it.typeID, itemPrice, reprocessValueRaw, reprocessMaterials, quantity: it.quantity, batchSize };
+                // Store raw values, apply rates later
+                return { 
+                    name: `${it.name} x ${it.quantity}`, 
+                    typeID: it.typeID, 
+                    itemPrice, 
+                    reprocessValueRaw, 
+                    reprocessMaterials, 
+                    quantity: it.quantity, 
+                    batchSize,
+                    canReprocess: true
+                };
+            } else {
+                // Non-reprocessable item
+                return { 
+                    name: `${it.name} x ${it.quantity}`, 
+                    typeID: it.typeID, 
+                    itemPrice, 
+                    reprocessValueRaw: 0, 
+                    reprocessMaterials: [], 
+                    quantity: it.quantity, 
+                    batchSize: 1,
+                    canReprocess: false
+                };
+            }
         });
 
         recalculateWithNewRates(); // Apply initial rates
@@ -633,12 +666,48 @@ async function calculate(side = 'buy') {
 // ---- Recalculation ----
 function recalculateWithNewRates() {
     currentRows.forEach(r => {
+        if (!r.canReprocess) {
+            // Non-reprocessable items
+            let taxOnItem = 0;
+            if (taxApplication === 'item' || taxApplication === 'both') {
+                taxOnItem = r.itemPrice * taxRate;
+            }
+
+            const reprocessValue = 0;
+            const displayItemPrice = r.itemPrice - taxOnItem;
+            const diff = reprocessValue - displayItemPrice;
+            const ratio = 0; // No reprocess value
+            const recommend = lastSide === 'buy' ? 'Sell to Buy Orders' : 'List as Sell Order';
+            const recClass = 'recommend-sell';
+            const reprocessDetails = [{ name: 'Not Reprocessable', quantity: 0, price: 0 }];
+
+            Object.assign(r, { reprocessValue, displayItemPrice, diff, ratio, recommend, recClass, reprocessDetails });
+            return;
+        }
+
+        // Calculate the gross mineral value by applying normalization per material
+        let grossMineralValue = 0;
+        const reprocessDetails = [];
+        
         // Get tooltip normalization factor for this item
         const normalizationFactor = getTooltipNormalizationFactor(r.typeID, r.name);
         
-        // Apply normalization to the raw reprocess value BEFORE applying recovery rate
-        const normalizedReprocessValueRaw = r.reprocessValueRaw * normalizationFactor;
-        const grossMineralValue = normalizedReprocessValueRaw * recoveryRate;
+        for (const m of r.reprocessMaterials) {
+            const numBatches = r.quantity / r.batchSize;
+            let recoveredQty = Math.floor(m.baseQuantity * numBatches * recoveryRate);
+
+            // Only apply normalization and add to gross value if material has a price > 0
+            if (m.price > 0) {
+                recoveredQty = Math.floor(recoveredQty * normalizationFactor);
+                grossMineralValue += m.price * recoveredQty;
+            }
+
+            reprocessDetails.push({
+                name: m.name,
+                quantity: recoveredQty,
+                price: m.price,
+            });
+        }
         
         let taxOnMineral = 0;
         let taxOnItem = 0;
@@ -651,26 +720,11 @@ function recalculateWithNewRates() {
         }
 
         const reprocessValue = grossMineralValue - taxOnMineral;
-        const displayItemPrice = r.itemPrice - taxOnItem; // FIXED: Changed from + to -
+        const displayItemPrice = r.itemPrice - taxOnItem;
         const diff = reprocessValue - displayItemPrice;
         const ratio = displayItemPrice > 0 ? reprocessValue / displayItemPrice : 0;
         const recommend = diff > 0 ? 'Reprocess' : (lastSide === 'buy' ? 'Sell to Buy Orders' : 'List as Sell Order');
         const recClass = diff > 0 ? 'recommend-reprocess' : 'recommend-sell';
-
-        // Update tooltip details with current recovery rate and normalization
-        const reprocessDetails = r.reprocessMaterials.map(m => {
-            const numBatches = r.quantity / r.batchSize;
-            let recoveredQty = Math.floor(m.baseQuantity * numBatches * recoveryRate);
-
-            // Apply normalization factor for tooltip display
-            recoveredQty = Math.floor(recoveredQty * normalizationFactor);
-
-            return {
-                name: m.name,
-                quantity: recoveredQty,
-                price: m.price,
-            };
-        });
 
         Object.assign(r, { reprocessValue, displayItemPrice, diff, ratio, recommend, recClass, reprocessDetails });
     });
@@ -690,6 +744,7 @@ function resetAll() {
     taxApplication = 'minerals';
     ignoreAmmo = false;
     showOnlyReprocess = false;
+    includeNonReprocessable = true; // CHANGED: Default to include non-reprocessable
     minRatioFilter = 0;
     sortColumn = 'diff';
     sortDirection = 'desc';
@@ -703,12 +758,17 @@ function resetAll() {
     if (taxRateEl) taxRateEl.value = '0';
     setTaxApplication('minerals');
 
-
     toggleAmmoBtn.textContent = 'Ignore Ammunition: Off';
     toggleAmmoBtn.setAttribute('aria-pressed', 'false');
 
     toggleShowReprocessBtn.textContent = 'Show Only Reprocess: Off';
     toggleShowReprocessBtn.setAttribute('aria-pressed', 'false');
+
+    // REMOVED: Button doesn't exist in HTML, so don't try to update it
+    // if (toggleNonReprocessableBtn) {
+    //     toggleNonReprocessableBtn.textContent = 'Include Non-Reprocessable: On';
+    //     toggleNonReprocessableBtn.setAttribute('aria-pressed', 'true');
+    // }
 
     // Ratio filter UI reset
     if (ratioCustomEl) ratioCustomEl.value = '';
@@ -746,10 +806,53 @@ function applyCustomRatioFilter() {
     if (currentRows.length > 0) renderTable();
 }
 
+// ---- UI toggles ----
+function toggleIgnoreAmmo() {
+    if (busy) return;
+    ignoreAmmo = !ignoreAmmo;
+    toggleAmmoBtn.textContent = `Ignore Ammunition: ${ignoreAmmo ? 'On' : 'Off'}`;
+    toggleAmmoBtn.setAttribute('aria-pressed', ignoreAmmo ? 'true' : 'false');
+    if (currentRows.length > 0) renderTable();
+}
+
+function toggleShowOnlyReprocess() {
+    if (busy) return;
+    showOnlyReprocess = !showOnlyReprocess;
+    toggleShowReprocessBtn.textContent = `Show Only Reprocess: ${showOnlyReprocess ? 'On' : 'Off'}`;
+    toggleShowReprocessBtn.setAttribute('aria-pressed', showOnlyReprocess ? 'true' : 'false');
+    if (currentRows.length > 0) renderTable();
+}
+
+// SIMPLIFIED: Remove the toggle function since the button doesn't exist
+// function toggleIncludeNonReprocessable() {
+//     if (busy) return;
+//     includeNonReprocessable = !includeNonReprocessable;
+//     if (toggleNonReprocessableBtn) {
+//         toggleNonReprocessableBtn.textContent = `Include Non-Reprocessable: ${includeNonReprocessable ? 'On' : 'Off'}`;
+//         toggleNonReprocessableBtn.setAttribute('aria-pressed', includeNonReprocessable ? 'true' : 'false');
+//     }
+//     if (currentRows.length > 0) renderTable();
+// }
+
+function setSort(column) {
+    if (busy) return;
+    if (sortColumn === column) {
+        sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+        sortColumn = column;
+        // Default to ascending for string columns, descending for numeric columns
+        const isStringColumn = column === 'name' || column === 'recommend';
+        sortDirection = isStringColumn ? 'asc' : 'desc';
+    }
+    if (currentRows.length > 0) renderTable();
+}
+
 // Expose functions for inline handlers
 window.calculate = calculate;
 window.toggleIgnoreAmmo = toggleIgnoreAmmo;
 window.toggleShowOnlyReprocess = toggleShowOnlyReprocess;
+// REMOVED: Function doesn't exist anymore
+// window.toggleIncludeNonReprocessable = toggleIncludeNonReprocessable;
 window.setSort = setSort;
 window.resetAll = resetAll;
 window.setRatioFilter = setRatioFilter;
@@ -834,33 +937,3 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
-
-// ---- UI toggles ----
-function toggleIgnoreAmmo() {
-    if (busy) return;
-    ignoreAmmo = !ignoreAmmo;
-    toggleAmmoBtn.textContent = `Ignore Ammunition: ${ignoreAmmo ? 'On' : 'Off'}`;
-    toggleAmmoBtn.setAttribute('aria-pressed', ignoreAmmo ? 'true' : 'false');
-    if (currentRows.length > 0) renderTable();
-}
-
-function toggleShowOnlyReprocess() {
-    if (busy) return;
-    showOnlyReprocess = !showOnlyReprocess;
-    toggleShowReprocessBtn.textContent = `Show Only Reprocess: ${showOnlyReprocess ? 'On' : 'Off'}`;
-    toggleShowReprocessBtn.setAttribute('aria-pressed', showOnlyReprocess ? 'true' : 'false');
-    if (currentRows.length > 0) renderTable();
-}
-
-function setSort(column) {
-    if (busy) return;
-    if (sortColumn === column) {
-        sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
-    } else {
-        sortColumn = column;
-        // Default to ascending for string columns, descending for numeric columns
-        const isStringColumn = column === 'name' || column === 'recommend';
-        sortDirection = isStringColumn ? 'asc' : 'desc';
-    }
-    if (currentRows.length > 0) renderTable();
-}
