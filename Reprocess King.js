@@ -445,7 +445,7 @@ function renderTable() {
         const isAsc = sortDirection === 'asc';
 
         if (typeof valA === 'string') {
-            return isAsc ? valA.localeCompare(valA) : valB.localeCompare(valA);
+            return isAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
         }
         return isAsc ? valA - valB : valB - valA;
     });
