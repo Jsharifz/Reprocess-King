@@ -110,6 +110,13 @@ function isVortonProjectorCharge(typeID) {
     return vortonProjectorChargeGroupIDs.includes(groupID);
 }
 
+// New utility to check for Smart Bombs
+function isSmartBomb(typeID) {
+    const groupID = typeIdToGroupId.get(typeID);
+    // Group ID for Smart Bombs in EVE
+    return groupID === 72;
+}
+
 // Get tooltip normalization factor based on item name and groupID
 function getTooltipNormalizationFactor(typeID, itemName) {
     const groupID = typeIdToGroupId.get(typeID);
@@ -119,6 +126,10 @@ function getTooltipNormalizationFactor(typeID, itemName) {
     console.log(`Tooltip normalization check: ${itemName} - TypeID: ${typeID}, GroupID: ${groupID}`);
     
     // Check by group ID first
+    if (groupID === 72) {
+        console.log(`Found Smart Bomb by groupID: ${itemName}`);
+        return 1; // Smart Bombs: multiply by 1 to get correct reprocess values
+    }
     if (groupID === 90) {
         console.log(`Found bomb by groupID: ${itemName}`);
         return 5; // Bombs: multiply by 5 (was 20, now reduced by 4x)
@@ -137,6 +148,11 @@ function getTooltipNormalizationFactor(typeID, itemName) {
     }
     
     // Fallback: check by name patterns if group ID detection fails
+    if (lowerName.includes('smartbomb') || lowerName.includes('smart bomb') || 
+        (lowerName.includes('proton') && lowerName.includes('smartbomb'))) {
+        console.log(`Found Smart Bomb by name: ${itemName}`);
+        return 1; // Smart Bombs: multiply by 1 to get correct reprocess values
+    }
     if (lowerName.includes('bomb')) {
         console.log(`Found bomb by name: ${itemName}`);
         return 5; // Bombs: multiply by 5 (was 20, now reduced by 4x)
@@ -414,7 +430,7 @@ function renderTable() {
     if (showOnlyReprocess) {
         filtered = filtered.filter(r => r.diff > 0);
     }
-    // SIMPLIFIED: Remove the non-reprocessable filter since we want to show all items by default
+    // SIMPLIFIED: Remove the non-reservable filter since we want to show all items by default
     // if (!includeNonReprocessable) {
     //     filtered = filtered.filter(r => r.canReprocess);
     // }
